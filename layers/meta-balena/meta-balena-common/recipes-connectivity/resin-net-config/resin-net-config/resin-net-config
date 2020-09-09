@@ -1,0 +1,54 @@
+#!/bin/sh
+#
+# copy over NetworkManager configuration files and set proper
+# permissions.
+#
+
+set -e
+
+. /usr/sbin/resin-vars
+
+if [ ! -f "$CONFIG_PATH" ]; then
+	echo "resin-net-config: $CONFIG_PATH does not exist."
+	exit 1
+else
+	echo "resin-net-config: Found config.json in $CONFIG_PATH ."
+fi
+
+if [ ! -d "$RESIN_BOOT_MOUNTPOINT" ]; then
+	echo "resin-net-config: $RESIN_BOOT_MOUNTPOINT doesn't exist."
+	exit 1
+fi
+
+CONFIG_NM=${RESIN_BOOT_MOUNTPOINT}/system-connections/
+if [ -d "$CONFIG_NM" ]; then
+	cp -r "$CONFIG_NM" /etc/NetworkManager/
+	chmod 600 /etc/NetworkManager/system-connections/*
+fi
+
+# set the wifi regulatory domain; keep the devices default if unset
+if [ ! -z "$COUNTRY" ]; then
+	iw reg set "$COUNTRY"
+fi
+
+# add additional DNS servers to dnsmasq configuration
+DNS_SERVER_FILE=/run/dnsmasq.servers
+echo > $DNS_SERVER_FILE
+for dns in $DNS_SERVERS; do
+	echo "server=$dns" >> $DNS_SERVER_FILE
+done
+
+# Setup DNS bridge interface
+DNS_INTERFACE_NAME="resin-dns"
+DNS_INTERFACE_IP="10.114.102.1"
+if [ ! -d "/sys/class/net/${DNS_INTERFACE_NAME}" ]; then
+	ip link add name ${DNS_INTERFACE_NAME} type bridge
+fi
+if [ "$(cat /sys/class/net/${DNS_INTERFACE_NAME}/operstate)" = "down" ]; then
+	ip link set ${DNS_INTERFACE_NAME} up
+fi
+if [ "$(ip addr show ${DNS_INTERFACE_NAME} | grep -o "inet [0-9]*\.[0-9]*\.[0-9]*\.[0-9]*" | grep -o "[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*")" != "${DNS_INTERFACE_IP}" ]; then
+	ip address add ${DNS_INTERFACE_IP}/24 dev ${DNS_INTERFACE_NAME}
+fi
+
+exit 0

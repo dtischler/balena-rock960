@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenVPN
+Requires=prepare-openvpn.service bind-etc-openvpn.service
+After=syslog.target network.target prepare-openvpn.service bind-etc-openvpn.service time-sync.target
+ConditionFileNotEmpty=/etc/openvpn/openvpn.conf
+
+[Service]
+PrivateTmp=true
+Restart=always
+RestartSec=10s
+#Adjust OOMscore to -1000 to disable OOM killing for openvpn
+OOMScoreAdjust=-1000
+PIDFile=/run/openvpn/openvpn.pid
+ExecStart=/usr/sbin/openvpn --writepid /run/openvpn/openvpn.pid --cd /etc/openvpn/ --config /etc/openvpn/openvpn.conf --connect-retry 5 120
+
+[Install]
+Alias=openvpn-resin.service
+WantedBy=multi-user.target

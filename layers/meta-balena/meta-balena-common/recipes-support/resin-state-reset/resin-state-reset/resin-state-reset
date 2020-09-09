@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+RESIN_STATE_MP=@RESIN_STATE_MP@
+
+# Purge data
+rm -rf ${RESIN_STATE_MP}/root-overlay
+
+# FIXME
+# For now we need to pre-populate the initial version of supervisor.conf
+# We need to stop doing this in the future by using cache file in the state
+# partition
+mkdir -p -- "/mnt/state/root-overlay/etc/resin-supervisor/"
+if [ -f "/etc/resin-supervisor/supervisor.conf" ]
+then
+    cp -- "/etc/resin-supervisor/supervisor.conf" "/mnt/state/root-overlay/etc/resin-supervisor/"
+fi
+
+# Make sure everything is on disk otherwise the flag 'remove_me_to_reset'
+# might end up before other data on state partition. If so, in the case of a
+# power loss we might end up in a state with inconsistent data (eg.
+# supervisor.conf is empty).
+sync

@@ -1,0 +1,15 @@
+[Unit]
+Description=Temporary resin config in /mnt/boottmp/conf
+DefaultDependencies=no
+Requires=mnt-boot.mount mnt-boottmp.mount
+After=mnt-boot.mount mnt-boottmp.mount
+Before=umount.target
+Conflicts=umount.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/cp -vf /mnt/boot/config.json /mnt/boottmp/config.json
+
+[Install]
+WantedBy=multi-user.target

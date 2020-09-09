@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -o errexit
+
+# Check that info works
+balena info > /dev/null 2>&1
+
+# Check that we can read containers from disk
+balena ps > /dev/null
+
+# Check that we can start a new container
+balena run --rm --log-driver none --network none balena-healthcheck-image > /dev/null

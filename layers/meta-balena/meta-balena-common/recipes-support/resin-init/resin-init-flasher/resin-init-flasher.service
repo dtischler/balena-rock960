@@ -1,0 +1,13 @@
+[Unit]
+Description=Resin init flasher service
+Requires=mnt-boot.mount
+Wants=resin-device-register.service
+After=mnt-boot.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=@BASE_BINDIR@/bash @BINDIR@/resin-init-flasher
+
+[Install]
+WantedBy=multi-user.target

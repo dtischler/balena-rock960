@@ -1,0 +1,7 @@
+[Unit]
+Description=Config.json watcher service
+Wants=prepare-openvpn.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/echo 'config.json changed'

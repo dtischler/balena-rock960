@@ -1,0 +1,10 @@
+[Unit]
+Description=Config.json path watch
+Requires=resin-boot.service
+After=resin-boot.service
+
+[Path]
+PathChanged=/mnt/boot/config.json
+
+[Install]
+WantedBy=basic.target

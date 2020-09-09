@@ -1,0 +1,161 @@
+#!/bin/sh
+
+set -o pipefail
+
+# Help function
+update_resin_supervisor_help() {
+    cat << EOF
+Wrapper to run supervisor agent updates on balena distributions.
+$0 <OPTION>
+
+Options:
+  -h, --help
+        Display this help and exit.
+
+  -i <SUPERVISOR IMAGE>, --supervisor-image <SUPERVISOR IMAGE>
+        Set supervisor image to update to.
+
+  -t <SUPERVISOR TAG>, --supervisor-tag <SUPERVISOR TAG>
+        Set supervisor tag to update to.
+EOF
+}
+
+# Parse arguments
+while [ $# -gt 0 ]; do
+    arg="$1"
+
+    case $arg in
+        -h|--help)
+            update_resin_supervisor_help
+            exit 0
+            ;;
+        -i|--supervisor-image)
+            if [ -z "$2" ]; then
+                echo "ERROR: \"$1\" argument needs a value."
+                exit 1
+            fi
+            UPDATER_SUPERVISOR_IMAGE=$2
+            shift
+            ;;
+        -t|--supervisor-tag)
+            if [ -z "$2" ]; then
+                echo "ERROR: \"$1\" argument needs a value."
+                exit 1
+            fi
+            UPDATER_SUPERVISOR_TAG=$2
+            shift
+            ;;
+        *)
+            echo "ERROR: Unrecognized option $1."
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+# Don't source before parsing args - resin-vars parses args too
+# shellcheck disable=SC1091
+. /usr/sbin/resin-vars
+
+# A temporary file used until next reboot
+UPDATECONF=/tmp/update-supervisor.conf
+
+# If the user api key exists we use it instead of the deviceApiKey as it means we haven't done the key exchange yet
+_device_api_key=${PROVISIONING_API_KEY:-$DEVICE_API_KEY}
+
+error_handler() {
+    # shellcheck disable=SC2181
+    [ $? -eq 0 ] && exit 0
+
+    # If docker pull fails, start the old supervisor again and exit
+    rm -rf $UPDATECONF
+    systemctl start resin-supervisor
+    exit 1
+}
+
+trap error_handler EXIT
+
+# Detect containers engine
+if which docker > /dev/null 2>&1; then
+    DOCKER=docker
+elif which rce > /dev/null 2>&1; then
+    DOCKER=rce
+elif which balena > /dev/null 2>&1; then
+    DOCKER=balena
+else
+    echo "ERROR: No container engine detected."
+    error_handler "no container engine detected"
+fi
+
+# Get target supervisor tag from API.
+# The script will exit if curl does not get a valid response.
+# Getting data separately before reading it fixes error handling.
+echo "Getting image name and tag..."
+if [ -n "$API_ENDPOINT" ] && [ -n "$DEVICE_ID" ] && [ -n "$_device_api_key" ] && data=$(curl --silent --header "Authorization: Bearer $_device_api_key" --header "User-Agent:" --compressed "$API_ENDPOINT/v4/supervisor_release?\$select=supervisor_version,image_name&\$filter=should_manage__device/any(d:d/id%20eq%20$DEVICE_ID)" | jq -e -r '.d[0].supervisor_version,.d[0].image_name'); then
+    echo "Supervisor configuration found from API."
+
+    if [ -n "$UPDATER_SUPERVISOR_TAG" ] || [ -n "$UPDATER_SUPERVISOR_IMAGE" ]; then
+        echo "WARN: Ignore image/tag arguments as API overrides them."
+    fi
+
+    tag=$(echo "$data" | awk 'BEGIN{ RS = "" ; FS = "\n" }{print $1}')
+    image_name=$(echo "$data" | awk 'BEGIN{ RS = "" ; FS = "\n" }{print $2}')
+    if [ -z "$tag" ] || [ -z "$image_name" ]; then
+        echo "ERROR: Unexpected API data."
+        error_handler "unexpected API data"
+    fi
+
+    # Check that we didn't somehow get an empty tag version.
+    if [ -z "$tag" ]; then
+        echo "ERROR: No tag received."
+        error_handler "no tag received"
+    fi
+else
+    echo "No supervisor configuration found from API or required variables not set. Using arguments for image and tag."
+    # shellcheck disable=SC1091
+    . /etc/resin-supervisor/supervisor.conf
+    if [ -z "$UPDATER_SUPERVISOR_TAG" ]; then
+        # Try to get the tag from supervisor.conf
+        if [ -n "$SUPERVISOR_TAG" ]; then
+            UPDATER_SUPERVISOR_TAG=$SUPERVISOR_TAG
+        else
+            echo "ERROR: No tag argument provided."
+            error_handler "no tag argument provided"
+        fi
+    fi
+    if [ -z "$UPDATER_SUPERVISOR_IMAGE" ]; then
+        UPDATER_SUPERVISOR_IMAGE=$SUPERVISOR_IMAGE
+    fi
+    echo "Set based on arguments image=$UPDATER_SUPERVISOR_IMAGE and tag=$UPDATER_SUPERVISOR_TAG."
+    image_name=$UPDATER_SUPERVISOR_IMAGE
+    tag=$UPDATER_SUPERVISOR_TAG
+fi
+
+# Get image id of tag. This will be non-empty only in case it's already downloaded.
+echo "Getting image id..."
+imageid=$($DOCKER inspect -f '{{.Id}}' "$image_name:$tag") || imageid=""
+
+if [ -n "$imageid" ]; then
+    echo "Supervisor $image_name:$tag already downloaded."
+    exit 0
+fi
+
+# Try to stop old supervisor to prevent it deleting the intermediate images while downloading the new one
+echo "Stop supervisor..."
+systemctl stop resin-supervisor
+
+# Pull target version.
+echo "Pulling supervisor $image_name:$tag..."
+$DOCKER pull "$image_name:$tag"
+
+$DOCKER rm --force resin_supervisor || true
+
+# Store the tagged image string so resin-supervisor.service can pick it up
+sed -e "s|SUPERVISOR_IMAGE=.*|SUPERVISOR_IMAGE=$image_name|" -e "s|SUPERVISOR_TAG=.*|SUPERVISOR_TAG=$tag|" /etc/resin-supervisor/supervisor.conf > $UPDATECONF
+
+# Run supervisor with the device-type-specific options.
+# We give a specific name to the container to guarantee only one running.
+echo "Start supervisor..."
+systemctl start resin-supervisor
+
+sed -i -e "s|SUPERVISOR_IMAGE=.*|SUPERVISOR_IMAGE=$image_name|" -e "s|SUPERVISOR_TAG=.*|SUPERVISOR_TAG=$tag|" /etc/resin-supervisor/supervisor.conf

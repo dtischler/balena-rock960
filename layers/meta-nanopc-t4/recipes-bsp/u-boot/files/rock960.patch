@@ -1,0 +1,19 @@
+Patch imported from https://github.com/armbian/build.git at revision 62b4cbbdfd670da269c86a32bb230b087fa2fca8
+
+Upstream-Status: Pending
+Signed-off-by: Florin Sarbu <floion@balena.io>
+---
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index 0e2ffdb..8e9c5f0 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -84,6 +84,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += \
+ 	rk3368-sheep.dtb \
+ 	rk3368-geekbox.dtb \
+ 	rk3368-px5-evb.dtb \
++	rk3399-rock960.dtb \
+ 	rk3399-evb.dtb \
+ 	rk3399-firefly.dtb \
+ 	rk3399-gru-bob.dtb \
+
+
